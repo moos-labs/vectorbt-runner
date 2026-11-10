@@ -405,8 +405,9 @@ def write_report(path, summary):
             if x is None:
                 return "—"
             return f"{fmt(x['price'])} → {fmt(x['capture'])} ({fmt(x['capture_pct'], 2)}%)"
+        label = e["label"] + (" ⚠" if e.get("scale_consistent") is False else "")
         lines.append(
-            f"| {e['label']} | {e['rights_end_date']} | {e['ex_date']} | {e['dividend']} | "
+            f"| {label} | {e['rights_end_date']} | {e['ex_date']} | {e['dividend']} | "
             f"{e['entry_session']} | {fmt(e['entry_close'])} | {cell('ex_open')} | "
             f"{cell('ex_close')} | {cell('payday_close')} |"
         )
@@ -530,6 +531,28 @@ def main():
     summary["notes"].append("No fees, slippage or taxes are modelled.")
 
     results = [study_event(df_study, e, args.payday_offset) for e in events]
+    # Per-event scale consistency: an event whose downloaded/verified
+    # entry-close ratio disagrees with the applied scale assumption comes
+    # from a provider segment that is adjusted or stale relative to the
+    # verified closes — flag it instead of silently trusting its row.
+    for res, e in zip(results, events):
+        r = scale["ratios"].get(e["label"])
+        if r is None:
+            continue
+        res["scale_ratio_vs_verified"] = r
+        res["scale_consistent"] = (
+            abs(r * scale["multiplier_applied"] - 1.0) <= 0.05
+        )
+        if not res["scale_consistent"]:
+            res["data_quality_flag"] = (
+                "Downloaded prices around this event sit on a different "
+                f"scale than the verified exchange closes (ratio {r:.4f}); "
+                "that segment of the provider series appears split-adjusted "
+                "and/or stale, so this row's captures are not reliable."
+            )
+            summary["notes"].append(
+                f"Event {e['label']}: " + res["data_quality_flag"]
+            )
     summary["events"] = results
 
     averages = {}
