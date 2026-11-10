@@ -81,6 +81,24 @@ def fetch_ohlc(tickers):
             log(f"[data] {ticker}: ERROR {exc}")
             continue
 
+        # yfinance 1.x downloads each timestamp in the exchange timezone
+        # (Africa/Cairo observes no DST) and can raise NonExistentTimeError
+        # for local midnights that never occurred historically (Egypt had
+        # DST in the past). Retrying with prepost=True sidesteps it.
+        if (df is None or len(df) == 0):
+            try:
+                df = yf.download(
+                    ticker,
+                    start=HISTORY_START,
+                    auto_adjust=False,
+                    progress=False,
+                    prepost=True,
+                )
+                if df is not None and len(df) > 0:
+                    log(f"[data] {ticker}: retry with prepost=True returned rows")
+            except Exception as exc:
+                log(f"[data] {ticker}: prepost retry ERROR {exc}")
+
         if df is None or len(df) == 0:
             attempts.append({"ticker": ticker, "rows": 0, "error": None})
             log(f"[data] {ticker}: no rows")
@@ -206,6 +224,23 @@ def write_report(path, summary):
     lines = []
     lines.append("# Dividend-capture study — pilot run")
     lines.append("")
+    if summary.get("ticker_used") is None:
+        lines.append("## Data verdict")
+        lines.append("")
+        lines.append(summary.get("data_verdict", "No data."))
+        lines.append("")
+        lines.append("Tickers tried: "
+                     + ", ".join(f"{a['ticker']} ({a['rows']} rows)"
+                                 for a in summary.get("tickers_tried", [])))
+        lines.append("")
+        lines.append("## Notes")
+        lines.append("")
+        for note in summary.get("notes", []):
+            lines.append(f"- {note}")
+        lines.append("")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return
     lines.append(f"- Ticker used: **{summary.get('ticker_used')}**")
     lines.append(
         f"- Data: {summary.get('rows')} rows, "
