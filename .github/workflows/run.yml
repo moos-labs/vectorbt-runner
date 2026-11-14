@@ -2,6 +2,11 @@ name: Run analysis
 
 on:
   workflow_dispatch:
+    inputs:
+      commands:
+        description: 'Borsagator composed commands (overrides vars.COMMANDS)'
+        required: false
+        type: string
 
 jobs:
   run:
@@ -19,7 +24,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run commands
-        run: ${{ vars.COMMANDS }}
+        run: ${{ inputs.commands || vars.COMMANDS }}
 
       - name: Upload results
         if: always()
